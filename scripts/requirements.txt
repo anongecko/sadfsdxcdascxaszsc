@@ -1,0 +1,41 @@
+# ML Libraries (Core)
+torch==2.5.1
+torchvision
+torchaudio==2.5.1
+diffusers==0.25.0
+transformers==4.36.2
+accelerate==0.25.0
+safetensors==0.4.1
+
+# API and Web Framework
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+httpx==0.26.0
+
+# System Monitoring
+psutil==5.9.8
+nvidia-ml-py==12.535.133
+gputil==1.4.0
+
+# Utilities
+python-dotenv==1.0.1
+pydantic==2.6.1
+cachetools==5.3.2
+aiohttp==3.9.3
+pillow==10.2.0
+numpy==1.26.3
+
+# Logging and Monitoring
+python-json-logger==2.0.7
+prometheus-client==0.19.0
+opentelemetry-api==1.22.0
+opentelemetry-sdk==1.22.0
+opentelemetry-instrumentation-fastapi==0.43b0
+nvidia_smi
+
+# Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+

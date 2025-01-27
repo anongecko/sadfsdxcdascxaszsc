@@ -1,0 +1,24 @@
+[Unit]
+Description=LLM Server Monitor Service
+After=llm-server.service
+Requires=llm-server.service
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/mnt/data/llm-server
+Environment="PYTHONPATH=/home/azureuser/llm-server"
+ExecStart=/home/azureuser/llm-env/bin/python /home/azureuser/scripts/monitor.py
+
+CPUWeight=10
+CPUQuota=20%
+MemoryMax=2G
+
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/mnt/data/llm-server/logs/monitor.log
+StandardError=append:/mnt/data/llm-server/logs/monitor.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=LLM Server Cleanup Service
+After=llm-server.service
+
+[Service]
+Type=oneshot
+User=azureuser
+Group=azureuser
+Environment="PATH=/home/azureuser/llm-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
+ExecStart=/bin/bash -c '\
+    find /mnt/data/logs -type f -name "*.log" -mtime +7 -delete; \
+    find /mnt/data/cache -type f -mtime +1 -delete; \
+    python -c "import torch; torch.cuda.empty_cache()"; \
+    journalctl --vacuum-time=7d'
+
+[Install]
+WantedBy=multi-user.target

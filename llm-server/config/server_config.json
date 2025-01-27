@@ -1,0 +1,85 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "workers": 8,
+        "backlog": 2048,
+        "timeout_keep_alive": 75,
+        "limit_concurrency": 200
+    },
+    "models": {
+        "text": {
+            "path": "/mnt/data/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf",
+            "context_length": 163840,
+            "batch_size": 4096,
+            "thread_count": 40,
+            "temperature": 0.6,
+            "gpu_layers": 40,
+            "rope_scaling": "yarn",
+            "rope_freq_base": 10000,
+            "rope_freq_scale": 0.1,
+            "numa": true,
+            "mlock": true,
+            "cache_capacity": "50G"
+        },
+        "image": {
+            "base_path": "/mnt/data/models/image/flux1-dev",
+            "components": {
+                "scheduler": "scheduler",
+                "text_encoder": "text_encoder",
+                "text_encoder_2": "text_encoder_2",
+                "tokenizer": "tokenizer",
+                "tokenizer_2": "tokenizer_2",
+                "transformer": "transformer",
+                "vae": "vae"
+            },
+            "defaults": {
+                "height": 1024,
+                "width": 1024,
+                "guidance_scale": 3.5,
+                "num_inference_steps": 50,
+                "max_sequence_length": 512,
+                "num_images_per_prompt": 1
+            },
+            "limits": {
+                "max_height": 2048,
+                "max_width": 2048,
+                "max_num_images": 4,
+                "max_steps": 100
+            },
+            "optimization": {
+                "torch_dtype": "bfloat16",
+                "enable_cpu_offload": true,
+                "enable_attention_slicing": true,
+                "cuda_memory_strategy": "balanced"
+            },
+            "cache_dir": "/mnt/data/cache/image"
+        }
+    },
+    "monitoring": {
+        "inactivity_threshold": 180,
+        "check_interval": 15,
+        "resource_limits": {
+            "cpu_percent": 90,
+            "memory_percent": 90,
+            "gpu_percent": 95,
+            "gpu_memory_percent": 90,
+            "requests_per_minute": 200
+        },
+        "gpu_settings": {
+            "power_limit": 700,
+            "memory_reserved": "20G",
+            "compute_mode": 0
+        }
+    },
+    "storage": {
+        "data_disk_mount": "/mnt/data",
+        "logs_path": "/mnt/data/logs",
+        "cache_path": "/mnt/data/cache",
+        "cleanup": {
+            "log_retention_days": 7,
+            "cache_retention_hours": 24,
+            "min_free_space": "50G"
+        }
+    }
+}

@@ -1,0 +1,56 @@
+[Unit]
+Description=Multi-Model LLM and Image Generation Server
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+User=azureuser
+Group=azureuser
+WorkingDirectory=/mnt/data/llm-server
+
+Environment="PATH=/home/azureuser/llm-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="PYTHONPATH=/home/azureuser/llm-server"
+Environment="PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512"
+Environment="TORCH_CUDA_ARCH_LIST=9.0"
+Environment="CUDA_LAUNCH_BLOCKING=1"
+Environment="OMP_NUM_THREADS=40"
+Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="MKL_NUM_THREADS=40"
+Environment="NUMEXPR_NUM_THREADS=40"
+
+ExecStartPre=/home/azureuser/scripts/optimize_system.sh
+
+ExecStart=/home/azureuser/llm-env/bin/python -m uvicorn api.main:app \
+    --host 0.0.0.0 \
+    --port 8080 \
+    --workers 4 \
+    --limit-concurrency 100 \
+    --backlog 2048 \
+    --timeout-keep-alive 75
+
+LimitNOFILE=1000000
+LimitMEMLOCK=infinity
+LimitNPROC=65535
+
+MemoryLow=64G
+MemoryHigh=280G
+MemoryMax=300G
+
+CPUSchedulingPolicy=batch
+CPUSchedulingPriority=50
+CPUWeight=90
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+
+Restart=always
+RestartSec=1
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+StandardOutput=append:/mnt/data/llm-server/logs/server.log
+StandardError=append:/mnt/data/llm-server/logs/server.log
+
+[Install]
+WantedBy=multi-user.target
