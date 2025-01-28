@@ -83,7 +83,7 @@ class SystemMonitor:
         """Check if services are responding"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"http://localhost:{self.config['server']['port']}/health", timeout=2) as response:
+                async with session.get(f"http://api.hotshitai:{self.config['server']['port']}/health", timeout=2) as response:
                     return response.status == 200
         except:
             return False
