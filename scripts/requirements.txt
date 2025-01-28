@@ -38,4 +38,7 @@ nvidia_smi
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-
+# Azure SDK
+azure-identity==1.15.0
+azure-mgmt-compute==30.3.0
+azure-mgmt-resource==23.0.1

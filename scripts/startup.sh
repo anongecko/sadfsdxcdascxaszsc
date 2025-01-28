@@ -6,6 +6,25 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
 }
 
+setup_azure_credentials() {
+    log "Setting up Azure credentials"
+    
+    # Create Azure credentials directory
+    AZURE_DIR="/home/azureuser/.azure"
+    mkdir -p "$AZURE_DIR"
+    
+    # Set environment variables for Azure
+    cat > /etc/environment <<EOF
+AZURE_SUBSCRIPTION_ID="343fe172-46d2-417a-afef-f9c72fe53f3c"
+AZURE_RESOURCE_GROUP="testing-m1-for-deepseek"
+AZURE_VM_NAME="DeepseekR1"
+API_ENDPOINT="https://api.hotshitai.com"
+EOF
+
+    # Load new environment variables
+    source /etc/environment
+}
+
 check_models() {
     log "Checking model files"
     
@@ -71,6 +90,9 @@ main() {
         log "Model check failed"
         exit 1
     fi
+    
+    # Setup Azure credentials
+    setup_azure_credentials
     
     # Run optimizations
     optimize_llama_cpp

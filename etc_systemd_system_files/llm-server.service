@@ -9,7 +9,6 @@ StartLimitBurst=3
 User=azureuser
 Group=azureuser
 WorkingDirectory=/mnt/data/llm-server
-
 Environment="PATH=/home/azureuser/llm-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 Environment="PYTHONPATH=/home/azureuser/llm-server"
 Environment="PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512"
@@ -19,9 +18,9 @@ Environment="OMP_NUM_THREADS=40"
 Environment="CUDA_VISIBLE_DEVICES=0"
 Environment="MKL_NUM_THREADS=40"
 Environment="NUMEXPR_NUM_THREADS=40"
+Environment="SERVER_HOSTNAME=api.hotshitai.com"
 
 ExecStartPre=/home/azureuser/scripts/optimize_system.sh
-
 ExecStart=/home/azureuser/llm-env/bin/python -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port 8080 \
@@ -33,22 +32,18 @@ ExecStart=/home/azureuser/llm-env/bin/python -m uvicorn api.main:app \
 LimitNOFILE=1000000
 LimitMEMLOCK=infinity
 LimitNPROC=65535
-
 MemoryLow=64G
 MemoryHigh=280G
 MemoryMax=300G
-
 CPUSchedulingPolicy=batch
 CPUSchedulingPriority=50
 CPUWeight=90
 IOSchedulingClass=best-effort
 IOSchedulingPriority=0
-
 Restart=always
 RestartSec=1
 TimeoutStartSec=300
 TimeoutStopSec=30
-
 StandardOutput=append:/mnt/data/llm-server/logs/server.log
 StandardError=append:/mnt/data/llm-server/logs/server.log
 
