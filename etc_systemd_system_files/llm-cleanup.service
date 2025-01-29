@@ -1,5 +1,5 @@
 [Unit]
-Description=LLM Server Cleanup Service
+Description=DeepSeek-R1 Server Cleanup Service
 After=llm-server.service
 
 [Service]
@@ -9,10 +9,11 @@ Group=azureuser
 Environment="PATH=/home/azureuser/llm-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 
 ExecStart=/bin/bash -c '\
-    find /mnt/data/logs -type f -name "*.log" -mtime +7 -delete; \
-    find /mnt/data/cache -type f -mtime +1 -delete; \
-    python -c "import torch; torch.cuda.empty_cache()"; \
-    journalctl --vacuum-time=7d'
+    find /mnt/data/llm-server/logs -type f -name "*.log" -mtime +7 -delete; \
+    find /mnt/data/llm-server/cache -type f -mtime +1 -delete; \
+    python -c "import torch; torch.cuda.empty_cache(); torch.cuda.synchronize()"; \
+    journalctl --vacuum-time=7d; \
+    nvidia-smi --gpu-reset || true'
 
 [Install]
 WantedBy=multi-user.target

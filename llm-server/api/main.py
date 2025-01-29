@@ -8,8 +8,8 @@ from typing import Dict, Any
 import json
 import time
 
-from services import TextModelService, ImageModelService
-from api.routers import text_router, image_router
+from services import TextModelService
+from api.routers import text_router
 from api.middleware.auth import AuthMiddleware
 from api.middleware.monitoring import MonitoringMiddleware
 
@@ -18,7 +18,7 @@ logging.basicConfig(filename="/mnt/data/llm-server/logs/api.log", level=logging.
 logger = logging.getLogger("API")
 
 # Initialize FastAPI app
-app = FastAPI(title="Multi-Model AI API", description="API for DeepSeek-R1 and FLUX.1 models", version="1.0.0")
+app = FastAPI(title="DeepSeek-R1 API", description="API for DeepSeek-R1 large language model", version="1.0.0")
 
 # Add CORS middleware
 app.add_middleware(
@@ -33,30 +33,32 @@ app.add_middleware(
 app.add_middleware(AuthMiddleware)
 app.add_middleware(MonitoringMiddleware)
 
-# Initialize services (global instances)
+# Initialize text service (global instance)
 text_service = TextModelService(
     config_path="/mnt/data/llm-server/config/server_config.json", api_keys_path="/mnt/data/llm-server/config/text_api_keys.json", log_path="/mnt/data/llm-server/logs/text-model.log"
 )
 
-image_service = ImageModelService(
-    config_path="/mnt/data/llm-server/config/server_config.json", api_keys_path="/mnt/data/llm-server/config/image_api_keys.json", log_path="/mnt/data/llm-server/logs/image-model.log"
-)
-
-# Include routers
+# Include text router
 app.include_router(text_router.router, tags=["text"])
-app.include_router(image_router.router, tags=["image"])
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup"""
+    """Initialize text service on startup"""
     try:
-        logger.info("Starting services initialization")
+        logger.info("Starting DeepSeek-R1 service initialization")
 
-        # Initialize both services concurrently
-        await asyncio.gather(text_service.initialize(), image_service.initialize())
+        # H100-specific CUDA optimizations
+        import torch
 
-        logger.info("Services initialized successfully")
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            torch.cuda.set_device(0)
+
+        await text_service.initialize()
+        logger.info("DeepSeek-R1 service initialized successfully")
     except Exception as e:
         logger.error(f"Startup error: {e}")
         raise
@@ -67,10 +69,7 @@ async def shutdown_event():
     """Cleanup on shutdown"""
     try:
         logger.info("Initiating shutdown")
-
-        # Cleanup both services concurrently
-        await asyncio.gather(text_service.cleanup(), image_service.cleanup())
-
+        await text_service.cleanup()
         logger.info("Shutdown complete")
     except Exception as e:
         logger.error(f"Shutdown error: {e}")
@@ -78,10 +77,9 @@ async def shutdown_event():
 
 @app.get("/health")
 async def health_check():
-    """Comprehensive health check endpoint"""
+    """Health check endpoint"""
     try:
-        # Get health status from both services concurrently
-        text_health, image_health = await asyncio.gather(text_service.health_check(), image_service.health_check())
+        text_health = await text_service.health_check()
 
         # System metrics
         disk_usage = Path("/mnt/data").statvfs()
@@ -91,12 +89,7 @@ async def health_check():
             "used_percent": (1 - (disk_usage.f_bavail / disk_usage.f_blocks)) * 100,
         }
 
-        return {
-            "status": "healthy" if all(h["status"] == "healthy" for h in [text_health, image_health]) else "degraded",
-            "timestamp": time.time(),
-            "services": {"text": text_health, "image": image_health},
-            "system": {"disk_space": disk_space, "uptime": time.time() - startup_time},
-        }
+        return {"status": "healthy" if text_health["status"] == "healthy" else "degraded", "timestamp": time.time(), "services": {"text": text_health}, "system": {"disk_space": disk_space}}
     except Exception as e:
         logger.error(f"Health check error: {e}")
         return {"status": "unhealthy", "error": str(e)}
@@ -106,7 +99,7 @@ async def health_check():
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Custom exception handler"""
     logger.error(f"HTTP error: {exc.status_code} - {exc.detail}")
-    return {"error": {"code": exc.status_code, "message": exc.detail, "request_id": request.state.request_id}}
+    return {"error": {"code": exc.status_code, "message": exc.detail}}
 
 
 # Store startup time for uptime tracking
@@ -144,3 +137,4 @@ if __name__ == "__main__":
             },
         },
     )
+

@@ -1,5 +1,5 @@
 [Unit]
-Description=LLM Server Monitor Service
+Description=DeepSeek-R1 Server Monitor Service
 After=llm-server.service
 Requires=llm-server.service
 
@@ -8,6 +8,7 @@ User=root
 Group=root
 WorkingDirectory=/mnt/data/llm-server
 Environment="PYTHONPATH=/home/azureuser/llm-server"
+Environment="CUDA_VISIBLE_DEVICES=0"
 ExecStart=/home/azureuser/llm-env/bin/python /home/azureuser/scripts/monitor.py
 
 CPUWeight=10

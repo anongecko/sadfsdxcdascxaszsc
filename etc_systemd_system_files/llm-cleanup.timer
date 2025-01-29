@@ -1,5 +1,5 @@
 [Unit]
-Description=Run LLM Server Cleanup Daily
+Description=Run DeepSeek-R1 Server Cleanup Daily
 
 [Timer]
 OnCalendar=daily

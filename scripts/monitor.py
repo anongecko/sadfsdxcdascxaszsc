@@ -31,7 +31,7 @@ class SystemMonitor:
             "disk": 85
         }
         
-        # Initialize NVIDIA monitoring
+        # Initialize NVIDIA monitoring for H100
         nvidia_smi.nvmlInit()
         self.gpu_handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
         
@@ -85,15 +85,17 @@ class SystemMonitor:
             info = nvidia_smi.nvmlDeviceGetUtilizationRates(self.gpu_handle)
             memory = nvidia_smi.nvmlDeviceGetMemoryInfo(self.gpu_handle)
             temp = nvidia_smi.nvmlDeviceGetTemperature(self.gpu_handle, nvidia_smi.NVML_TEMPERATURE_GPU)
-            power = nvidia_smi.nvmlDeviceGetPowerUsage(self.gpu_handle) / 1000.0
+            power = nvidia_smi.nvmlDeviceGetPowerUsage(self.gpu_handle) / 1000.0  # Convert to Watts
+            clock = nvidia_smi.nvmlDeviceGetClockInfo(self.gpu_handle, nvidia_smi.NVML_CLOCK_SM)
 
             return {
                 "utilization": info.gpu,
-                "memory_used": memory.used / 1024**3,
+                "memory_used": memory.used / 1024**3,  # Convert to GB
                 "memory_total": memory.total / 1024**3,
                 "memory_percent": (memory.used / memory.total) * 100,
                 "temperature": temp,
-                "power_usage": power
+                "power_usage": power,
+                "sm_clock": clock
             }
         except Exception as e:
             self.logger.error(f"GPU metrics error: {e}")

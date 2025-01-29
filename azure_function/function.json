@@ -9,7 +9,10 @@
         "get",
         "post"
       ],
-      "route": "{*path}"
+      "route": "v1/{*path}",
+      "route_constraints": {
+        "path": "^(chat/completions|models)$"
+      }
     },
     {
       "type": "http",

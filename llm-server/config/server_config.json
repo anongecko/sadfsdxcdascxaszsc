@@ -2,7 +2,7 @@
     "server": {
         "host": "0.0.0.0",
         "port": 8080,
-        "workers": 8,
+        "workers": 4,
         "backlog": 2048,
         "timeout_keep_alive": 75,
         "limit_concurrency": 200
@@ -20,55 +20,21 @@
             "rope_freq_scale": 0.1,
             "numa": true,
             "mlock": true,
-            "cache_capacity": "50G"
-        },
-        "image": {
-            "base_path": "/mnt/data/models/image/flux1-dev",
-            "components": {
-                "scheduler": "scheduler",
-                "text_encoder": "text_encoder",
-                "text_encoder_2": "text_encoder_2",
-                "tokenizer": "tokenizer",
-                "tokenizer_2": "tokenizer_2",
-                "transformer": "transformer",
-                "vae": "vae"
-            },
-            "defaults": {
-                "height": 1024,
-                "width": 1024,
-                "guidance_scale": 3.5,
-                "num_inference_steps": 50,
-                "max_sequence_length": 512,
-                "num_images_per_prompt": 1
-            },
-            "limits": {
-                "max_height": 2048,
-                "max_width": 2048,
-                "max_num_images": 4,
-                "max_steps": 100
-            },
-            "optimization": {
-                "torch_dtype": "bfloat16",
-                "enable_cpu_offload": true,
-                "enable_attention_slicing": true,
-                "cuda_memory_strategy": "balanced"
-            },
-            "cache_dir": "/mnt/data/cache/image"
+            "cache_capacity": "280G"
         }
     },
     "monitoring": {
-        "inactivity_threshold": 180,
+        "inactivity_threshold": 600,
         "check_interval": 15,
         "resource_limits": {
             "cpu_percent": 90,
             "memory_percent": 90,
             "gpu_percent": 95,
-            "gpu_memory_percent": 90,
-            "requests_per_minute": 200
+            "gpu_memory_percent": 90
         },
         "gpu_settings": {
-            "power_limit": 700,
-            "memory_reserved": "20G",
+            "power_limit": 350,
+            "memory_reserved": "40G",
             "compute_mode": 0
         }
     },

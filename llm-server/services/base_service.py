@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import logging
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import asyncio
 from datetime import datetime
 import nvidia_smi
@@ -24,31 +24,28 @@ class BaseModelService(ABC):
         nvidia_smi.nvmlInit()
         self.gpu_handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
 
+        # H100-specific CUDA optimizations
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+            torch.cuda.set_device(0)  # Ensure using first GPU
+
     def _setup_logging(self, log_path: str) -> logging.Logger:
-        """Configure logging with file rotation using TimedRotatingFileHandler"""
+        """Configure logging with file rotation"""
         logger = logging.getLogger(self.__class__.__name__)
         logger.setLevel(logging.INFO)
 
-        # Create logs directory if it doesn't exist
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Use FileHandler with rotation based on file size
-        max_bytes = 10 * 1024 * 1024  # 10MB
-        file_count = 5
-        handler = None
-
-        try:
-            from logging.handlers import RotatingFileHandler
-
-            handler = RotatingFileHandler(log_path, maxBytes=max_bytes, backupCount=file_count)
-        except ImportError:
-            # Fallback to basic FileHandler if RotatingFileHandler is not available
-            handler = logging.FileHandler(log_path)
-
+        handler = logging.handlers.RotatingFileHandler(
+            log_path,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,
+        )
         formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-
         return logger
 
     def _load_config(self) -> Dict[str, Any]:
@@ -68,27 +65,41 @@ class BaseModelService(ABC):
             raise RuntimeError(f"Failed to load API keys: {e}")
 
     async def get_gpu_metrics(self) -> Dict[str, Any]:
-        """Get detailed GPU metrics"""
+        """Get detailed GPU metrics for H100"""
         try:
             info = nvidia_smi.nvmlDeviceGetUtilizationRates(self.gpu_handle)
             memory = nvidia_smi.nvmlDeviceGetMemoryInfo(self.gpu_handle)
             temp = nvidia_smi.nvmlDeviceGetTemperature(self.gpu_handle, nvidia_smi.NVML_TEMPERATURE_GPU)
+            power = nvidia_smi.nvmlDeviceGetPowerUsage(self.gpu_handle) / 1000.0  # Convert to Watts
 
-            return {"utilization": info.gpu, "memory_used_gb": memory.used / 1024**3, "memory_free_gb": memory.free / 1024**3, "temperature": temp}
+            return {
+                "utilization": info.gpu,
+                "memory_used_gb": memory.used / 1024**3,
+                "memory_free_gb": memory.free / 1024**3,
+                "temperature": temp,
+                "power_usage": power,
+                "memory_percent": (memory.used / memory.total) * 100,
+            }
         except Exception as e:
             self.logger.error(f"GPU metrics error: {e}")
             return {}
 
     async def optimize_memory(self):
-        """Optimize memory usage"""
+        """Optimize memory usage for H100"""
         try:
             if torch.cuda.is_available():
-                # Clear GPU cache
+                # Clear CUDA cache
                 torch.cuda.empty_cache()
 
-                # Memory defragmentation
+                # Advanced memory defragmentation if available
+                if hasattr(torch.cuda, "memory_stats"):
+                    self.logger.info(f"GPU memory stats before optimization: {torch.cuda.memory_stats()}")
+
                 if hasattr(torch.cuda, "memory_defrag"):
                     torch.cuda.memory_defrag()
+
+                # Reset peak memory stats
+                torch.cuda.reset_peak_memory_stats()
 
             # Suggest Python garbage collection
             import gc
@@ -105,7 +116,7 @@ class BaseModelService(ABC):
             self.performance_metrics = self.performance_metrics[-1000:]
 
     async def get_performance_stats(self) -> Dict[str, float]:
-        """Calculate performance statistics"""
+        """Calculate detailed performance statistics"""
         if not self.performance_metrics:
             return {}
 
@@ -115,6 +126,9 @@ class BaseModelService(ABC):
             "p50_latency": float(np.percentile(metrics, 50)),
             "p95_latency": float(np.percentile(metrics, 95)),
             "p99_latency": float(np.percentile(metrics, 99)),
+            "min_latency": float(np.min(metrics)),
+            "max_latency": float(np.max(metrics)),
+            "std_latency": float(np.std(metrics)),
         }
 
     @abstractmethod
@@ -132,13 +146,19 @@ class BaseModelService(ABC):
         return api_key in self.api_keys.get("keys", [])
 
     async def health_check(self) -> Dict[str, Any]:
-        """Basic health check implementation"""
+        """Comprehensive health check implementation"""
         try:
             gpu_metrics = await self.get_gpu_metrics()
             perf_stats = await self.get_performance_stats()
 
+            gpu_health = (
+                gpu_metrics.get("temperature", 100) < 85  # Below 85°C
+                and gpu_metrics.get("memory_percent", 100) < 95  # Below 95% memory
+                and gpu_metrics.get("utilization", 100) < 98  # Below 98% utilization
+            )
+
             return {
-                "status": "healthy" if self.is_loaded else "loading",
+                "status": "healthy" if self.is_loaded and gpu_health else "degraded",
                 "last_activity": self.last_activity.isoformat(),
                 "gpu_metrics": gpu_metrics,
                 "performance_stats": perf_stats,
@@ -159,3 +179,4 @@ class BaseModelService(ABC):
             self.logger.info("Cleanup completed")
         except Exception as e:
             self.logger.error(f"Cleanup error: {e}")
+

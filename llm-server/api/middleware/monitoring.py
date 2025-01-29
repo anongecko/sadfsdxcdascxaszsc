@@ -18,10 +18,37 @@ class MonitoringMiddleware:
         self.check_interval = 5  # seconds
         self.metrics_history = {}
         self._lock = asyncio.Lock()
+        self.active_requests = 0  # Track active requests
+
+        # Initialize NVIDIA monitoring
         nvidia_smi.nvmlInit()
         self.gpu_handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
 
+        # Alert thresholds
+        self.alert_thresholds = {"cpu": 90, "memory": 90, "gpu": 95, "gpu_memory": 90, "disk": 85}
+
+    async def get_gpu_metrics(self) -> Dict[str, Any]:
+        """Get detailed GPU metrics for H100"""
+        try:
+            info = nvidia_smi.nvmlDeviceGetUtilizationRates(self.gpu_handle)
+            memory = nvidia_smi.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+            temp = nvidia_smi.nvmlDeviceGetTemperature(self.gpu_handle, nvidia_smi.NVML_TEMPERATURE_GPU)
+            power = nvidia_smi.nvmlDeviceGetPowerUsage(self.gpu_handle) / 1000.0  # Convert to Watts
+
+            return {
+                "utilization": info.gpu,
+                "memory_used": memory.used / 1024**3,
+                "memory_total": memory.total / 1024**3,
+                "memory_percent": (memory.used / memory.total) * 100,
+                "temperature": temp,
+                "power_usage": power,
+            }
+        except Exception as e:
+            self.logger.error(f"GPU metrics error: {e}")
+            return {}
+
     def _setup_logging(self) -> logging.Logger:
+        """Configure logging"""
         logger = logging.getLogger("Monitoring")
         logger.setLevel(logging.INFO)
         handler = logging.FileHandler("/mnt/data/llm-server/logs/monitoring.log")
@@ -31,6 +58,7 @@ class MonitoringMiddleware:
         return logger
 
     def _load_config(self) -> dict:
+        """Load configuration file"""
         try:
             with open("/mnt/data/llm-server/config/server_config.json", "r") as f:
                 return json.load(f)
@@ -38,37 +66,50 @@ class MonitoringMiddleware:
             self.logger.error(f"Error loading config: {e}")
             return {}
 
-    async def get_system_metrics(self) -> Dict[str, Any]:
-        """Get comprehensive system metrics"""
+    async def check_services_health(self) -> bool:
         try:
-            # CPU and Memory metrics
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"http://localhost:{self.config['server']['port']}/health", timeout=2) as response:
+                    if response.status != 200:
+                        return False
+                    data = await response.json()
+                    return data.get("services", {}).get("text", {}).get("status") == "healthy"
+        except:
+            return False
+
+    async def get_system_metrics(self) -> Dict[str, Any]:
+        try:
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
-
-            # GPU metrics
-            gpu_info = nvidia_smi.nvmlDeviceGetUtilizationRates(self.gpu_handle)
-            gpu_memory = nvidia_smi.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-            gpu_temp = nvidia_smi.nvmlDeviceGetTemperature(self.gpu_handle, nvidia_smi.NVML_TEMPERATURE_GPU)
-
-            # Disk metrics
             disk = psutil.disk_usage("/mnt/data")
+            gpu_metrics = await self.get_gpu_metrics()
+            net_connections = len([conn for conn in psutil.net_connections() if conn.status == "ESTABLISHED"])
 
-            # Network metrics
-            net_io = psutil.net_io_counters()
+            # Text model specific metrics
+            model_metrics = {
+                "gpu_memory_used": gpu_metrics.get("memory_used", 0),
+                "gpu_memory_total": gpu_metrics.get("memory_total", 0),
+                "requests_per_minute": self.active_requests,
+                "gpu_utilization": gpu_metrics.get("utilization", 0),
+            }
 
             metrics = {
                 "timestamp": datetime.now().isoformat(),
                 "cpu": {"percent": cpu_percent, "per_cpu": psutil.cpu_percent(percpu=True), "load_avg": psutil.getloadavg()},
-                "memory": {"percent": memory.percent, "used_gb": memory.used / (1024**3), "available_gb": memory.available / (1024**3)},
-                "gpu": {"utilization": gpu_info.gpu, "memory_used_gb": gpu_memory.used / (1024**3), "memory_free_gb": gpu_memory.free / (1024**3), "temperature": gpu_temp},
-                "disk": {"percent": disk.percent, "used_gb": disk.used / (1024**3), "free_gb": disk.free / (1024**3)},
-                "network": {"bytes_sent": net_io.bytes_sent, "bytes_recv": net_io.bytes_recv},
+                "memory": {"percent": memory.percent, "used_gb": memory.used / 1024**3, "available_gb": memory.available / 1024**3},
+                "disk": {"percent": disk.percent, "used_gb": disk.used / 1024**3, "free_gb": disk.free / 1024**3},
+                "gpu": gpu_metrics,
+                "text_model": model_metrics,
+                "network": {"connections": net_connections, "active_requests": self.active_requests},
             }
+
+            # Update metrics history
+            self.metrics_history[time.time()] = metrics
 
             return metrics
 
         except Exception as e:
-            self.logger.error(f"Error getting system metrics: {e}")
+            self.logger.error(f"System metrics error: {e}")
             return {}
 
     async def check_resources(self) -> bool:
@@ -138,11 +179,17 @@ class MonitoringMiddleware:
         start_time = time.time()
 
         try:
+            # Increment active requests counter
+            self.active_requests += 1
+
             # Skip resource check for health endpoint
             if request.url.path != "/health":
-                # Check resources with self.
-                if not await self.check_resources():
-                    raise HTTPException(status_code=503, detail="System under heavy load")
+                # Check resources periodically
+                if time.time() - self.last_check >= self.check_interval:
+                    metrics = await self.get_system_metrics()
+                    if any(metrics.get(key, {}).get("percent", 0) > self.alert_thresholds[key] for key in ["cpu", "memory", "gpu"]):
+                        raise HTTPException(status_code=503, detail="System under heavy load")
+                    self.last_check = time.time()
 
             # Process request
             response = await call_next(request)
@@ -151,9 +198,6 @@ class MonitoringMiddleware:
             request_time = time.time() - start_time
             metrics = await self.get_system_metrics()
             metrics["request"] = {"path": request.url.path, "method": request.method, "processing_time": request_time, "status_code": response.status_code}
-
-            # Update metrics history asynchronously
-            asyncio.create_task(self.update_metrics_history(metrics))
 
             # Add monitoring headers
             response.headers["X-Processing-Time"] = str(request_time)
@@ -169,6 +213,9 @@ class MonitoringMiddleware:
             self.logger.error(f"Monitoring error: {e}")
             raise HTTPException(status_code=500, detail="Internal monitoring error")
         finally:
+            # Decrement active requests counter
+            self.active_requests -= 1
             # Log request metrics
             request_time = time.time() - start_time
             self.logger.info(f"Request: {request.method} {request.url.path} [{request_time:.3f}s]")
+

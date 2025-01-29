@@ -30,60 +30,43 @@ class ChatRequest(BaseModel):
 
     @validator("messages")
     def validate_messages(cls, v):
-        # Ensure messages are in correct order and contain required roles
         if not any(msg.role == "user" for msg in v):
             raise ValueError("At least one user message is required")
-
-        # Remove system messages as per model recommendations
         return [msg for msg in v if msg.role != "system"]
 
     @validator("messages", each_item=True)
     def validate_message_content(cls, v):
-        # Clean and validate message content
         v.content = v.content.strip()
         if len(v.content) < 1:
             raise ValueError("Message content cannot be empty")
         return v
 
 
-async def validate_api_key(api_key: str = Header(..., alias="Authorization")) -> str:
-    """Validate API key with caching"""
-    key = api_key.replace("Bearer ", "")
-    # API key validation would be handled by the service
-    return key
-
-
 @router.post("/v1/chat/completions")
 async def chat_completion(request: ChatRequest, background_tasks: BackgroundTasks, api_key: str = Header(..., alias="Authorization")):
-    """
-    Generate chat completion with optimized processing
-    """
+    """Generate chat completion using DeepSeek-R1"""
     try:
-        # Strip "Bearer " prefix if present
         api_key = api_key.replace("Bearer ", "")
 
-        # Prepare request for the model service
         service_request = {
             "messages": [msg.dict() for msg in request.messages],
             "temperature": request.temperature,
-            "max_tokens": request.max_tokens if request.max_tokens else 163840,  # Use max context if not specified
+            "max_tokens": request.max_tokens if request.max_tokens else 163840,
         }
 
-        # Add optional parameters if provided
+        # Add optional parameters
         for param in ["top_p", "presence_penalty", "frequency_penalty", "stop_sequences"]:
             if hasattr(request, param) and getattr(request, param) is not None:
                 service_request[param] = getattr(request, param)
 
-        from api.main import text_service  # Import here to avoid circular imports
+        from api.main import text_service
 
-        # Stream response if requested
         if request.stream:
             return await stream_response(service_request, text_service)
 
-        # Generate response
         response = await text_service.generate(service_request)
 
-        # Schedule background cleanup if memory usage is high
+        # Schedule cleanup if memory usage is high
         if await should_cleanup():
             background_tasks.add_task(cleanup_resources)
 
@@ -95,28 +78,27 @@ async def chat_completion(request: ChatRequest, background_tasks: BackgroundTask
 
 
 async def stream_response(request: Dict[str, Any], text_service):
-    """Stream response with optimized chunking"""
+    """Stream response with H100-optimized chunking"""
 
     async def generate():
         try:
             response = await text_service.generate(request)
             content = response["choices"][0]["message"]["content"]
 
-            # Optimize chunk size based on content length
+            # Optimize chunk size for H100 throughput
             chunk_size = min(max(len(content) // 20, 100), 1000)
 
-            # Stream in optimized chunks
             for i in range(0, len(content), chunk_size):
                 chunk = content[i : i + chunk_size]
                 yield {
                     "id": response["id"],
                     "object": "chat.completion.chunk",
                     "created": response["created"],
-                    "model": response["model"],
+                    "model": "deepseek-r1",
                     "choices": [{"index": 0, "delta": {"content": chunk}, "finish_reason": None if i + chunk_size < len(content) else "stop"}],
                 }
 
-                # Adaptive delay based on chunk size
+                # Dynamic delay based on chunk size for H100 optimization
                 await asyncio.sleep(0.01 * (len(chunk) / 100))
 
         except Exception as e:
@@ -127,7 +109,7 @@ async def stream_response(request: Dict[str, Any], text_service):
 
 
 async def should_cleanup() -> bool:
-    """Check if cleanup is needed based on resource usage"""
+    """Check if cleanup is needed based on H100 resource usage"""
     try:
         from api.main import text_service
 
@@ -141,7 +123,7 @@ async def should_cleanup() -> bool:
 
 
 async def cleanup_resources():
-    """Optimize resource usage"""
+    """Optimize H100 resource usage"""
     try:
         from api.main import text_service
 
@@ -152,7 +134,7 @@ async def cleanup_resources():
 
 @router.get("/v1/models")
 async def list_models(api_key: str = Header(..., alias="Authorization")):
-    """List available models and their capabilities"""
+    """List DeepSeek-R1 model and capabilities"""
     try:
         from api.main import text_service
 
@@ -176,3 +158,4 @@ async def list_models(api_key: str = Header(..., alias="Authorization")):
     except Exception as e:
         logger.error(f"Model list error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+

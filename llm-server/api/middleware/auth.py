@@ -1,5 +1,5 @@
 from fastapi import Request, HTTPException
-from typing import Optional, Dict, Set
+from typing import Dict
 import json
 from pathlib import Path
 import logging
@@ -28,10 +28,10 @@ class AuthMiddleware:
         logger.addHandler(handler)
         return logger
 
-    async def _load_api_keys(self, model_type: str) -> dict:
+    async def _load_api_keys(self) -> dict:
         """Load API keys with error handling and caching"""
         try:
-            key_path = Path(f"/mnt/data/llm-server/config/{model_type}_api_keys.json")
+            key_path = Path("/mnt/data/llm-server/config/text_api_keys.json")
             if not key_path.exists():
                 self.logger.error(f"API keys file not found: {key_path}")
                 return {"keys": []}
@@ -42,14 +42,14 @@ class AuthMiddleware:
                 async with self._reload_lock:
                     with open(key_path, "r") as f:
                         keys = json.load(f)
-                    self.api_keys[model_type] = keys
+                    self.api_keys = keys
                     self.last_reload = stats.st_mtime
                     return keys
 
-            return self.api_keys.get(model_type, {"keys": []})
+            return self.api_keys
 
         except Exception as e:
-            self.logger.error(f"Error loading API keys for {model_type}: {e}")
+            self.logger.error(f"Error loading API keys: {e}")
             return {"keys": []}
 
     def _get_rate_limit_key(self, api_key: str, client_ip: str) -> str:
@@ -75,20 +75,18 @@ class AuthMiddleware:
         self.rate_limits[rate_key].append(current_time)
         return True
 
-    async def _validate_key(self, api_key: str, model_type: str) -> bool:
+    async def _validate_key(self, api_key: str) -> bool:
         """Validate API key with caching"""
-        cache_key = f"{model_type}:{api_key}"
-
         # Check cache first
-        if cache_key in self.key_cache:
-            return self.key_cache[cache_key]
+        if api_key in self.key_cache:
+            return self.key_cache[api_key]
 
         # Load keys if needed
-        keys = await self._load_api_keys(model_type)
+        keys = await self._load_api_keys()
         is_valid = api_key in keys.get("keys", [])
 
         # Update cache
-        self.key_cache[cache_key] = is_valid
+        self.key_cache[api_key] = is_valid
         return is_valid
 
     async def __call__(self, request: Request, call_next):
@@ -103,19 +101,12 @@ class AuthMiddleware:
             if client_ip in self.blocked_ips:
                 raise HTTPException(status_code=403, detail="IP temporarily blocked")
 
-            # Extract model type from path
-            path = request.url.path
-            model_type = "text" if "/v1/chat" in path else "image" if "/v1/images" in path else None
-
-            if not model_type:
-                raise HTTPException(status_code=404, detail="Invalid endpoint")
-
             # Get and validate API key
             api_key = request.headers.get("Authorization", "").replace("Bearer ", "")
             if not api_key:
                 raise HTTPException(status_code=401, detail="Missing API key")
 
-            if not await self._validate_key(api_key, model_type):
+            if not await self._validate_key(api_key):
                 # Track failed attempts
                 rate_key = self._get_rate_limit_key(api_key, client_ip)
                 if rate_key not in self.rate_limits:
@@ -131,7 +122,7 @@ class AuthMiddleware:
 
             # Check rate limits
             rate_key = self._get_rate_limit_key(api_key, client_ip)
-            if not await self._check_rate_limit(rate_key, self.api_keys[model_type]):
+            if not await self._check_rate_limit(rate_key, self.api_keys):
                 raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
             # Add request ID for tracking
@@ -145,3 +136,4 @@ class AuthMiddleware:
         except Exception as e:
             self.logger.error(f"Authentication error: {e}")
             raise HTTPException(status_code=500, detail="Internal authentication error")
+

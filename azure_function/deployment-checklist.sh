@@ -5,7 +5,6 @@ check_directories() {
         "/mnt/data/llm-server/logs"
         "/mnt/data/llm-server/status"
         "/mnt/data/llm-server/models/text/deepseek-r1"
-        "/mnt/data/llm-server/models/image/flux1-dev"
         "/mnt/data/cache"
     )
     
@@ -39,14 +38,31 @@ check_environment() {
     fi
 }
 
-check_models() {
-    if [ ! -f "/mnt/data/llm-server/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf" ]; then
-        echo "DeepSeek model not found!"
+check_model() {
+    MODEL_PATH="/mnt/data/llm-server/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf"
+    if [ ! -f "$MODEL_PATH" ]; then
+        echo "DeepSeek model not found at: $MODEL_PATH"
         exit 1
     fi
     
-    if [ ! -d "/mnt/data/llm-server/models/image/flux1-dev" ]; then
-        echo "FLUX model directory not found!"
+    # Verify model file size
+    EXPECTED_SIZE=17500000000  # Approximate size in bytes
+    ACTUAL_SIZE=$(stat -f%z "$MODEL_PATH" 2>/dev/null || stat -c%s "$MODEL_PATH")
+    
+    if [ "$ACTUAL_SIZE" -lt "$EXPECTED_SIZE" ]; then
+        echo "Warning: Model file size ($ACTUAL_SIZE bytes) is smaller than expected ($EXPECTED_SIZE bytes)"
+        exit 1
+    fi
+}
+
+check_gpu() {
+    if ! command -v nvidia-smi &> /dev/null; then
+        echo "ERROR: nvidia-smi not found. GPU support is required."
+        exit 1
+    fi
+    
+    if ! nvidia-smi &> /dev/null; then
+        echo "ERROR: No NVIDIA GPU detected or driver issues."
         exit 1
     fi
 }
@@ -55,7 +71,8 @@ main() {
     echo "Running pre-deployment checks..."
     check_directories
     check_environment
-    check_models
+    check_model
+    check_gpu
     echo "Pre-deployment checks completed successfully"
 }
 

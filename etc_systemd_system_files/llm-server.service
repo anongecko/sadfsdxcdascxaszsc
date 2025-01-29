@@ -1,6 +1,6 @@
 [Unit]
-Description=Multi-Model LLM and Image Generation Server
-After=network-online.target
+Description=DeepSeek-R1 LLM Server
+After=network-online.target nvidia-persistenced.service
 Wants=network-online.target
 StartLimitIntervalSec=300
 StartLimitBurst=3
@@ -11,16 +11,23 @@ Group=azureuser
 WorkingDirectory=/mnt/data/llm-server
 Environment="PATH=/home/azureuser/llm-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 Environment="PYTHONPATH=/home/azureuser/llm-server"
+
+# H100-specific CUDA optimizations
 Environment="PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512"
+Environment="CUDA_DEVICE_MAX_CONNECTIONS=1"
 Environment="TORCH_CUDA_ARCH_LIST=9.0"
 Environment="CUDA_LAUNCH_BLOCKING=1"
 Environment="OMP_NUM_THREADS=40"
 Environment="CUDA_VISIBLE_DEVICES=0"
 Environment="MKL_NUM_THREADS=40"
-Environment="NUMEXPR_NUM_THREADS=40"
-Environment="SERVER_HOSTNAME=api.hotshitai.com"
+Environment="NUMEXPR_MAX_THREADS=40"
+Environment="NVIDIA_TF32_OVERRIDE=1"
+Environment="CUDA_MODULE_LOADING=LAZY"
 
+# Pre-start optimization
 ExecStartPre=/home/azureuser/scripts/optimize_system.sh
+
+# Main service
 ExecStart=/home/azureuser/llm-env/bin/python -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port 8080 \
@@ -29,21 +36,29 @@ ExecStart=/home/azureuser/llm-env/bin/python -m uvicorn api.main:app \
     --backlog 2048 \
     --timeout-keep-alive 75
 
+# Resource limits
 LimitNOFILE=1000000
 LimitMEMLOCK=infinity
 LimitNPROC=65535
 MemoryLow=64G
 MemoryHigh=280G
 MemoryMax=300G
+
+# CPU scheduling
 CPUSchedulingPolicy=batch
 CPUSchedulingPriority=50
 CPUWeight=90
 IOSchedulingClass=best-effort
 IOSchedulingPriority=0
+Nice=-10
+
+# Restart configuration
 Restart=always
 RestartSec=1
 TimeoutStartSec=300
 TimeoutStopSec=30
+
+# Logging
 StandardOutput=append:/mnt/data/llm-server/logs/server.log
 StandardError=append:/mnt/data/llm-server/logs/server.log
 

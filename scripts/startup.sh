@@ -21,87 +21,85 @@ AZURE_VM_NAME="DeepseekR1"
 API_ENDPOINT="https://api.hotshitai.com"
 EOF
 
-    # Load new environment variables
     source /etc/environment
 }
 
-check_models() {
-    log "Checking model files"
+check_model() {
+    log "Checking Deepseek R1 model file"
     
-    # Check DeepSeek model
-    if [ ! -f "/mnt/data/llm-server/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf" ]; then
-        log "ERROR: DeepSeek model not found"
+    MODEL_PATH="/mnt/data/llm-server/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf"
+    if [ ! -f "$MODEL_PATH" ]; then
+        log "ERROR: DeepSeek model not found at $MODEL_PATH"
         return 1
     fi
     
-    # Check FLUX model files
-    if [ ! -d "/mnt/data/llm-server/models/image/flux1-dev" ]; then
-        log "ERROR: FLUX model directory not found"
+    # Check file size
+    EXPECTED_SIZE=17500000000  # Approximate size in bytes
+    ACTUAL_SIZE=$(stat -f%z "$MODEL_PATH" 2>/dev/null || stat -c%s "$MODEL_PATH")
+    
+    if [ "$ACTUAL_SIZE" -lt "$EXPECTED_SIZE" ]; then
+        log "ERROR: Model file size ($ACTUAL_SIZE bytes) is smaller than expected ($EXPECTED_SIZE bytes)"
         return 1
     fi
     
     return 0
 }
 
-optimize_llama_cpp() {
-    log "Optimizing llama.cpp settings"
+optimize_system() {
+    log "Optimizing system for Deepseek R1"
     
     # Set environment variables for llama.cpp
     export OMP_NUM_THREADS=40
-    export BLAS_NUM_THREADS=40
     export MKL_NUM_THREADS=40
-    export OPENBLAS_NUM_THREADS=40
-    export VECLIB_MAXIMUM_THREADS=40
     export NUMEXPR_NUM_THREADS=40
+    
+    # H100-specific CUDA settings
+    export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export TORCH_CUDA_ARCH_LIST=9.0
+    export CUDA_LAUNCH_BLOCKING=1
+    export OMP_NUM_THREADS=40
+    export CUDA_VISIBLE_DEVICES=0
+    export MKL_NUM_THREADS=40
+    export NUMEXPR_MAX_THREADS=40
+    export NVIDIA_TF32_OVERRIDE=1
+    export CUDA_MODULE_LOADING=LAZY
 }
 
-preload_models() {
-    log "Pre-loading models into memory"
+preload_model() {
+    log "Pre-loading Deepseek R1 model"
     
-    # Pre-load DeepSeek model
-    log "Pre-loading DeepSeek model"
-    dd if=/mnt/data/llm-server/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf of=/dev/null bs=1M &
+    MODEL_PATH="/mnt/data/llm-server/models/text/deepseek-r1/DeepSeek-R1-Q4_K_M-merged.gguf"
     
-    # Pre-load FLUX model components
-    log "Pre-loading FLUX model"
-    find /mnt/data/llm-server/models/image/flux1-dev -type f -name "*.safetensors" -exec dd if={} of=/dev/null bs=1M \; &
+    # Preload model into page cache
+    log "Loading model into page cache"
+    dd if=$MODEL_PATH of=/dev/null bs=1M &
     
     wait
+    log "Model pre-loading completed"
 }
 
 setup_python_env() {
     log "Setting up Python environment"
-    
-    # Activate virtual environment
     source /home/azureuser/llm-env/bin/activate
-    
-    # Set Python environment variables
-    export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-    export TORCH_CUDA_ARCH_LIST=9.0  # For H100
-    export CUDA_LAUNCH_BLOCKING=1
-    export CUDA_VISIBLE_DEVICES=0
 }
 
 main() {
-    log "Starting initialization sequence"
+    log "Starting Deepseek R1 initialization"
     
-    # Check models
-    if ! check_models; then
+    # Check model
+    if ! check_model; then
         log "Model check failed"
         exit 1
     fi
     
-    # Setup Azure credentials
+    # Setup components
     setup_azure_credentials
-    
-    # Run optimizations
-    optimize_llama_cpp
+    optimize_system
     setup_python_env
+    preload_model
     
-    # Pre-load models
-    preload_models
-    
-    log "Initialization sequence completed"
+    log "Initialization completed successfully"
 }
 
 main
